@@ -1,0 +1,1 @@
+source venv/bin/activate && time python3 src/main.py --song-input="https://www.youtube.com/watch?v=p1biPWPvzSc" --rvc-dirname="Ivanzolo" --pitch-change="0" --keep-files
