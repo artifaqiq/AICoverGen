@@ -39,17 +39,19 @@ def save_request_to_file(data):
 
 @app.route('/aicovers', methods=['POST'])
 def handle_request():
-    logger.info(f"Handing incoming request {json.dumps(request.json)} ...")
+    logger.info(f"Handling incoming request {json.dumps(request.json)} ...")
     auth = request.authorization
 
     if not auth or not check_auth(auth.username, auth.password):
-        return authenticate()
+        logger.error(f"Unauthorized [{auth.username}]")
+        return jsonify({'message': 'Authentication required'}), 401
 
     request_body = request.json
     if not request_body \
             or 'youtube' not in request_body \
             or 'model' not in request_body \
             or 'webhook_url' not in request_body:
+        logger.error("Invalid request body")
         return jsonify({'message': 'Invalid request body'}), 400
 
     id = str(uuid.uuid4())
