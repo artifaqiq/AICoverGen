@@ -32,7 +32,7 @@ def main():
                 time.sleep(0.5)
                 try:
                     data = json.load(file)
-                    result_path = song_cover_pipeline(data['youtube'], data['model'])
+                    result_path = song_cover_pipeline(data['youtube'], data['model'], shorten_to=data.get('shorten_to', None))
                     data['result_path'] = result_path
                     logger.info(f'Result has been stored at {result_path}')
                     webhook(data)

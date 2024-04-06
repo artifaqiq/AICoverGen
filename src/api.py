@@ -62,6 +62,7 @@ def handle_request():
         'created_at': created_at,
         'youtube': request_body['youtube'],
         'model': request_body['model'],
+        'shorten_to': request_body.get('shorten_to', None),
         'webhook_url': request_body['webhook_url']
     }
 

@@ -18,6 +18,7 @@ import yt_dlp
 from pedalboard import Pedalboard, Reverb, Compressor, HighpassFilter
 from pedalboard.io import AudioFile
 from pydub import AudioSegment
+from yt_dlp import download_range_func
 
 from mdx import run_mdx
 from rvc import Config, load_hubert, get_vc, rvc_infer
@@ -64,17 +65,27 @@ def get_youtube_video_id(url, ignore_playlist=True):
     return None
 
 
-def yt_download(link):
+def yt_download(link, shorten_to):
     ydl_opts = {
-        'format': 'bestaudio',
+        'format': 'bestaudio/worst',
         'outtmpl': '%(title)s',
         'nocheckcertificate': True,
         'ignoreerrors': True,
         'no_warnings': True,
         'quiet': True,
         'extractaudio': True,
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3'
+        }],
     }
+    if shorten_to is not None:
+        ydl_opts = {
+            **ydl_opts,
+            'download_ranges': download_range_func(None, [(0, _parse_duration(shorten_to))]),
+        }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         result = ydl.extract_info(link, download=True)
         download_path = ydl.prepare_filename(result, outtmpl='%(title)s.mp3')
@@ -168,12 +179,12 @@ def display_progress(message, percent, is_webui, progress=None):
         logger.info(message)
 
 
-def preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress=None):
+def preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress=None, shorten_to=None):
     keep_orig = False
     if input_type == 'yt':
         display_progress('[~] Downloading song...', 0, is_webui, progress)
         song_link = song_input.split('&')[0]
-        orig_song_path = yt_download(song_link)
+        orig_song_path = yt_download(song_link, shorten_to)
     elif input_type == 'local':
         orig_song_path = song_input
         keep_orig = True
@@ -250,7 +261,7 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
                         is_webui=0, main_gain=0, backup_gain=0, inst_gain=0, index_rate=0.5, filter_radius=3,
                         rms_mix_rate=0.25, f0_method='rmvpe', crepe_hop_length=128, protect=0.33, pitch_change_all=0,
                         reverb_rm_size=0.15, reverb_wet=0.2, reverb_dry=0.8, reverb_damping=0.7, output_format='mp3',
-                        progress=gr.Progress()):
+                        progress=gr.Progress(), shorten_to=None):
     try:
         if not song_input or not voice_model:
             raise_exception('Ensure that the song input field and voice model field is filled.', is_webui)
@@ -279,12 +290,16 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
                 song_id = None
                 raise_exception(error_msg, is_webui)
 
+        # Override song id and song dir if video needs to be shortened
+        if shorten_to is not None:
+            song_id = song_id + "_" + shorten_to
+
         song_dir = os.path.join(output_dir, song_id)
 
         if not os.path.exists(song_dir):
             os.makedirs(song_dir)
             orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path = preprocess_song(
-                song_input, mdx_model_params, song_id, is_webui, input_type, progress)
+                song_input, mdx_model_params, song_id, is_webui, input_type, progress, shorten_to)
 
         else:
             vocals_path, main_vocals_path = None, None
@@ -333,6 +348,15 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
 
     except Exception as e:
         raise_exception(str(e), is_webui)
+
+
+# Accepts values like '15s', '30s', '100s' and returns number of seconds (e.g. 15, 30 or 100 accordingly)
+def _parse_duration(duration_str):
+    if duration_str.endswith('s'):
+        duration = int(duration_str[:-1])
+        return duration
+    else:
+        raise ValueError("Invalid duration format. Please use format '15s', '30s', etc.")
 
 
 if __name__ == '__main__':
