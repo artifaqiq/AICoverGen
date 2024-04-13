@@ -6,6 +6,7 @@ import logging
 import os
 import shlex
 import subprocess
+import time
 from contextlib import suppress
 from urllib.parse import urlparse, parse_qs
 
@@ -14,6 +15,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 import sox
+import wget as wget
 import yt_dlp
 from pedalboard import Pedalboard, Reverb, Compressor, HighpassFilter
 from pedalboard.io import AudioFile
@@ -26,6 +28,7 @@ from rvc import Config, load_hubert, get_vc, rvc_infer
 logger = logging.getLogger(__name__)
 
 SONG_OUTPUT_DIR = os.environ['AICOVERS_SONG_OUTPUT_DIR']
+PICTURES_DIR = os.environ['AICOVERS_PICTURES_DIR']
 MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 mdxnet_models_dir = os.path.join(MODELS_DIR, 'mdxnet_models')
@@ -257,11 +260,25 @@ def combine_audio(audio_paths, output_path, main_gain, backup_gain, inst_gain, o
     main_vocal_audio.overlay(backup_vocal_audio).overlay(instrumental_audio).export(output_path, format=output_format)
 
 
+def combine_to_video(audio_path, picture_path, output_path):
+    audio_path = shlex.quote(audio_path)
+    picture_path = shlex.quote(picture_path)
+    output_path = shlex.quote(output_path)
+    command = f'ffmpeg -loop 1 -i {picture_path} -i {audio_path} -c:v h264_nvenc -gpu 0 -c:a aac -b:a 192k -pix_fmt ' \
+        f'yuv420p -shortest -hide_banner -nostats -y {output_path} '
+
+    logger.info(f"Running command [{command}] ..."); start_time = time.time()
+    subprocess.run(shlex.split(command))
+    end_time = time.time(); logger.info(f"Command [{command}] executed in {end_time - start_time:.2f} seconds")
+    return output_path
+
+
 def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=False,
                         is_webui=0, main_gain=0, backup_gain=0, inst_gain=0, index_rate=0.5, filter_radius=3,
                         rms_mix_rate=0.25, f0_method='rmvpe', crepe_hop_length=128, protect=0.33, pitch_change_all=0,
                         reverb_rm_size=0.15, reverb_wet=0.2, reverb_dry=0.8, reverb_damping=0.7, output_format='mp3',
-                        progress=gr.Progress(), shorten_to=None):
+                        progress=gr.Progress(), shorten_to=None,
+                        cover_picture_url="https://aicovers-static-files.s3.eu-west-1.amazonaws.com/robot.jpeg"):
     try:
         if not song_input or not voice_model:
             raise_exception('Ensure that the song input field and voice model field is filled.', is_webui)
@@ -315,8 +332,10 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
         pitch_change = pitch_change * 12 + pitch_change_all
         ai_vocals_path = os.path.join(song_dir,
                                       f'{os.path.splitext(os.path.basename(orig_song_path))[0]}_{voice_model}_p{pitch_change}_i{index_rate}_fr{filter_radius}_rms{rms_mix_rate}_pro{protect}_{f0_method}{"" if f0_method != "mangio-crepe" else f"_{crepe_hop_length}"}.wav')
-        ai_cover_path = os.path.join(song_dir,
+        ai_cover_audio_path = os.path.join(song_dir,
                                      f'{os.path.splitext(os.path.basename(orig_song_path))[0]} ({voice_model} Ver).{output_format}')
+        ai_cover_video_path = os.path.join(song_dir,
+                                     f'{os.path.splitext(os.path.basename(orig_song_path))[0]} ({voice_model} Ver).mp4')
 
         if not os.path.exists(ai_vocals_path):
             display_progress('[~] Converting voice using RVC...', 0.5, is_webui, progress)
@@ -332,8 +351,9 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
             backup_vocals_path = pitch_shift(backup_vocals_path, pitch_change_all)
 
         display_progress('[~] Combining AI Vocals and Instrumentals...', 0.9, is_webui, progress)
-        combine_audio([ai_vocals_mixed_path, backup_vocals_path, instrumentals_path], ai_cover_path, main_gain,
+        combine_audio([ai_vocals_mixed_path, backup_vocals_path, instrumentals_path], ai_cover_audio_path, main_gain,
                       backup_gain, inst_gain, output_format)
+        combine_to_video(ai_cover_audio_path, download(cover_picture_url), ai_cover_video_path)
 
         if not keep_files:
             display_progress('[~] Removing intermediate audio files...', 0.95, is_webui, progress)
@@ -344,7 +364,7 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
                 if file and os.path.exists(file):
                     os.remove(file)
 
-        return ai_cover_path
+        return ai_cover_audio_path, ai_cover_video_path
 
     except Exception as e:
         raise_exception(str(e), is_webui)
@@ -357,6 +377,14 @@ def _parse_duration(duration_str):
         return duration
     else:
         raise ValueError("Invalid duration format. Please use format '15s', '30s', etc.")
+
+
+def download(file_url):
+    logger.info(f'Downloading [{file_url}] to [{PICTURES_DIR}] ...')
+    filename = wget.download(file_url, PICTURES_DIR)
+    path = os.path.join(PICTURES_DIR, filename)
+    logger.info(f'Downloaded [{file_url}] to [{path}]!')
+    return path
 
 
 if __name__ == '__main__':
@@ -400,13 +428,14 @@ if __name__ == '__main__':
     if not os.path.exists(os.path.join(rvc_models_dir, rvc_dirname)):
         raise Exception(f'The folder {os.path.join(rvc_models_dir, rvc_dirname)} does not exist.')
 
-    cover_path = song_cover_pipeline(args.song_input, rvc_dirname, args.pitch_change, args.keep_files,
-                                     main_gain=args.main_vol, backup_gain=args.backup_vol, inst_gain=args.inst_vol,
-                                     index_rate=args.index_rate, filter_radius=args.filter_radius,
-                                     rms_mix_rate=args.rms_mix_rate, f0_method=args.pitch_detection_algo,
-                                     crepe_hop_length=args.crepe_hop_length, protect=args.protect,
-                                     pitch_change_all=args.pitch_change_all,
-                                     reverb_rm_size=args.reverb_size, reverb_wet=args.reverb_wetness,
-                                     reverb_dry=args.reverb_dryness, reverb_damping=args.reverb_damping,
-                                     output_format=args.output_format)
-    logger.info(f'[+] Cover generated at {cover_path}')
+    ai_cover_audio_path, ai_cover_video_path = song_cover_pipeline(
+        args.song_input, rvc_dirname, args.pitch_change, args.keep_files,
+        main_gain=args.main_vol, backup_gain=args.backup_vol, inst_gain=args.inst_vol,
+        index_rate=args.index_rate, filter_radius=args.filter_radius,
+        rms_mix_rate=args.rms_mix_rate, f0_method=args.pitch_detection_algo,
+        crepe_hop_length=args.crepe_hop_length, protect=args.protect,
+        pitch_change_all=args.pitch_change_all,
+        reverb_rm_size=args.reverb_size, reverb_wet=args.reverb_wetness,
+        reverb_dry=args.reverb_dryness, reverb_damping=args.reverb_damping,
+        output_format=args.output_format)
+    logger.info(f'[+] Cover generated at {ai_cover_audio_path} and {ai_cover_video_path}')

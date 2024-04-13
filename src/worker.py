@@ -32,9 +32,16 @@ def main():
                 time.sleep(0.5)
                 try:
                     data = json.load(file)
-                    result_path = song_cover_pipeline(data['youtube'], data['model'], shorten_to=data.get('shorten_to', None))
-                    data['result_path'] = result_path
-                    logger.info(f'Result has been stored at {result_path}')
+                    start_time = time.time()
+                    _, ai_cover_video_path = song_cover_pipeline(
+                        song_input=data['youtube'],
+                        voice_model=data['model'],
+                        cover_picture_url=data.get('cover_picture_url'),
+                        shorten_to=data.get('shorten_to', None),
+                    )
+                    end_time = time.time()
+                    data['result_path'] = ai_cover_video_path
+                    logger.info(f'Result has been stored at {ai_cover_video_path} in {end_time - start_time:.2f} seconds')
                     webhook(data)
 
                     with open(filepath, 'w', encoding='utf-8') as modified_file:

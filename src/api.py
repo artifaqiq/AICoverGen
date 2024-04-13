@@ -50,6 +50,7 @@ def handle_request():
     if not request_body \
             or 'youtube' not in request_body \
             or 'model' not in request_body \
+            or 'cover_picture_url' not in request_body \
             or 'webhook_url' not in request_body:
         logger.error("Invalid request body")
         return jsonify({'message': 'Invalid request body'}), 400
@@ -62,6 +63,7 @@ def handle_request():
         'created_at': created_at,
         'youtube': request_body['youtube'],
         'model': request_body['model'],
+        'cover_picture_url': request_body.get('cover_picture_url'),
         'shorten_to': request_body.get('shorten_to', None),
         'webhook_url': request_body['webhook_url']
     }
