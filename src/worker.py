@@ -59,7 +59,6 @@ def main():
                     else:
                         data['error'] = str(e)
                         data['stacktrace'] = ''.join(traceback.format_tb(e.__traceback__))
-                        webhook(data)
                         with open(filepath, 'w', encoding='utf-8') as modified_file:
                             json.dump(data, modified_file, indent=2, ensure_ascii=False)
                         logger.info(f"Exception while processing request [{filename}]: [{e}]. "

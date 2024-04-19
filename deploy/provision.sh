@@ -115,3 +115,7 @@ touch /var/log/aicovers_worker/aicovers_worker.log
 
 supervisorctl reload && cat /var/log/aicovers_worker/aicovers_worker.log && supervisorctl status
 tail -f /var/log/aicovers_worker/aicovers_worker.log
+
+
+apt install certbot python3-certbot-nginx
+certbot --nginx -d files.aicovers.lightingwayou.com
