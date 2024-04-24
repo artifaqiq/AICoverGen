@@ -50,7 +50,7 @@ def get_youtube_video_id(url, ignore_playlist=True):
             return query.query[2:]
         return query.path[1:]
 
-    if query.hostname in {'www.youtube.com', 'youtube.com', 'music.youtube.com'}:
+    if query.hostname in {'www.youtube.com', 'youtube.com', 'music.youtube.com', 'm.youtube.com', 'youtu.be'}:
         if not ignore_playlist:
             # use case: get playlist id not current video in playlist
             with suppress(KeyError):
@@ -62,6 +62,8 @@ def get_youtube_video_id(url, ignore_playlist=True):
         if query.path[:7] == '/embed/':
             return query.path.split('/')[2]
         if query.path[:3] == '/v/':
+            return query.path.split('/')[2]
+        if query.path[:8] == '/shorts/':
             return query.path.split('/')[2]
 
     # returns None for invalid YouTube url
@@ -289,7 +291,7 @@ def song_cover_pipeline(song_input, voice_model, pitch_change=0, keep_files=Fals
             mdx_model_params = json.load(infile)
 
         # if youtube url
-        if urlparse(song_input).scheme == 'https':
+        if urlparse(song_input).scheme in ('http', 'https'):
             input_type = 'yt'
             song_id = get_youtube_video_id(song_input)
             if song_id is None:
